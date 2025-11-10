@@ -1,58 +1,21 @@
 /*
-  # Professional Development Game Schema
-
-  1. New Tables
-    - `profiles`
-      - `id` (uuid, primary key, references auth.users)
-      - `username` (text)
-      - `total_score` (integer, default 0)
-      - `current_level` (integer, default 1)
-      - `created_at` (timestamptz)
-      - `updated_at` (timestamptz)
-    
-    - `competencies`
-      - `id` (uuid, primary key)
-      - `name` (text) - e.g., "Liderazgo", "Análisis", "Comunicación"
-      - `description` (text)
-      - `icon` (text)
-      - `color` (text)
-    
-    - `questions`
-      - `id` (uuid, primary key)
-      - `competency_id` (uuid, references competencies)
-      - `level` (integer) - difficulty level 1-5
-      - `type` (text) - "pattern", "sequence", "analogy", "logic"
-      - `question_text` (text)
-      - `visual_data` (jsonb) - stores visual elements configuration
-      - `options` (jsonb) - array of answer options
-      - `correct_answer` (integer) - index of correct option
-      - `explanation` (text)
-      - `points` (integer)
-    
-    - `user_progress`
-      - `id` (uuid, primary key)
-      - `user_id` (uuid, references profiles)
-      - `question_id` (uuid, references questions)
-      - `is_correct` (boolean)
-      - `attempts` (integer, default 1)
-      - `completed_at` (timestamptz)
-    
-    - `achievements`
-      - `id` (uuid, primary key)
-      - `user_id` (uuid, references profiles)
-      - `competency_id` (uuid, references competencies)
-      - `level_completed` (integer)
-      - `unlocked_at` (timestamptz)
-
-  2. Security
-    - Enable RLS on all tables
-    - Policies for authenticated users to manage their own data
-    - Public read access to competencies and questions
+  # Professional Development Game Schema (Optimized for Supabase)
+  ---------------------------------------------------------------
+  Incluye:
+  - Creación de tablas con claves foráneas correctas.
+  - Activación de RLS y políticas claras.
+  - Inserción inicial de competencias y preguntas.
 */
 
+-- Habilitar extensión UUID si aún no está activa
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-------------------------------------------------
+-- 1. PROFILES
+-------------------------------------------------
 CREATE TABLE IF NOT EXISTS profiles (
   id uuid PRIMARY KEY REFERENCES auth.users ON DELETE CASCADE,
-  username text,
+  username text UNIQUE,
   total_score integer DEFAULT 0,
   current_level integer DEFAULT 1,
   created_at timestamptz DEFAULT now(),
@@ -61,22 +24,23 @@ CREATE TABLE IF NOT EXISTS profiles (
 
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 
+-- Políticas de seguridad
 CREATE POLICY "Users can view own profile"
   ON profiles FOR SELECT
-  TO authenticated
   USING (auth.uid() = id);
 
 CREATE POLICY "Users can insert own profile"
   ON profiles FOR INSERT
-  TO authenticated
   WITH CHECK (auth.uid() = id);
 
 CREATE POLICY "Users can update own profile"
   ON profiles FOR UPDATE
-  TO authenticated
   USING (auth.uid() = id)
   WITH CHECK (auth.uid() = id);
 
+-------------------------------------------------
+-- 2. COMPETENCIES
+-------------------------------------------------
 CREATE TABLE IF NOT EXISTS competencies (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name text NOT NULL,
@@ -89,16 +53,18 @@ ALTER TABLE competencies ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Anyone can view competencies"
   ON competencies FOR SELECT
-  TO authenticated
   USING (true);
 
+-------------------------------------------------
+-- 3. QUESTIONS
+-------------------------------------------------
 CREATE TABLE IF NOT EXISTS questions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   competency_id uuid REFERENCES competencies ON DELETE CASCADE,
-  level integer NOT NULL,
+  level integer NOT NULL CHECK (level >= 1),
   type text NOT NULL,
   question_text text NOT NULL,
-  visual_data jsonb,
+  visual_data jsonb DEFAULT '{}',
   options jsonb NOT NULL,
   correct_answer integer NOT NULL,
   explanation text,
@@ -109,9 +75,11 @@ ALTER TABLE questions ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Anyone can view questions"
   ON questions FOR SELECT
-  TO authenticated
   USING (true);
 
+-------------------------------------------------
+-- 4. USER_PROGRESS
+-------------------------------------------------
 CREATE TABLE IF NOT EXISTS user_progress (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid REFERENCES profiles ON DELETE CASCADE,
@@ -125,14 +93,15 @@ ALTER TABLE user_progress ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Users can view own progress"
   ON user_progress FOR SELECT
-  TO authenticated
   USING (auth.uid() = user_id);
 
 CREATE POLICY "Users can insert own progress"
   ON user_progress FOR INSERT
-  TO authenticated
   WITH CHECK (auth.uid() = user_id);
 
+-------------------------------------------------
+-- 5. ACHIEVEMENTS
+-------------------------------------------------
 CREATE TABLE IF NOT EXISTS achievements (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid REFERENCES profiles ON DELETE CASCADE,
@@ -145,22 +114,28 @@ ALTER TABLE achievements ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Users can view own achievements"
   ON achievements FOR SELECT
-  TO authenticated
   USING (auth.uid() = user_id);
 
 CREATE POLICY "Users can insert own achievements"
   ON achievements FOR INSERT
-  TO authenticated
   WITH CHECK (auth.uid() = user_id);
 
+-------------------------------------------------
+-- 6. INSERT DATA
+-------------------------------------------------
 INSERT INTO competencies (name, description, icon, color) VALUES
   ('Liderazgo', 'Capacidad de guiar y motivar equipos hacia objetivos comunes', 'users', '#3B82F6'),
   ('Análisis', 'Habilidad para examinar información y resolver problemas complejos', 'brain', '#10B981'),
   ('Comunicación', 'Efectividad en transmitir ideas y colaborar con otros', 'message-circle', '#F59E0B'),
   ('Creatividad', 'Capacidad de generar ideas innovadoras y soluciones originales', 'lightbulb', '#8B5CF6'),
-  ('Toma de Decisiones', 'Habilidad para evaluar opciones y elegir la mejor alternativa', 'target', '#EF4444');
+  ('Toma de Decisiones', 'Habilidad para evaluar opciones y elegir la mejor alternativa', 'target', '#EF4444')
+ON CONFLICT DO NOTHING;
 
-INSERT INTO questions (competency_id, level, type, question_text, visual_data, options, correct_answer, explanation, points) VALUES
+-------------------------------------------------
+-- 7. INSERT QUESTIONS
+-------------------------------------------------
+INSERT INTO questions (competency_id, level, type, question_text, visual_data, options, correct_answer, explanation, points)
+VALUES
   (
     (SELECT id FROM competencies WHERE name = 'Análisis' LIMIT 1),
     1,
@@ -227,3 +202,4 @@ INSERT INTO questions (competency_id, level, type, question_text, visual_data, o
     'Las decisiones efectivas requieren análisis de impacto, recursos disponibles y priorización estratégica.',
     15
   );
+
